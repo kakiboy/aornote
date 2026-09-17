@@ -5,13 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My Smart Note</title>
   
-  <!-- ตั้งค่าสำหรับการเป็น PWA (ติดตั้งเป็นแอป) -->
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0d6efd">
-  
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  
-  <!-- เพิ่ม Library สำหรับแปลง HTML เป็นรูปภาพ -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
   <style>
@@ -56,7 +52,6 @@
         </button>
       </div>
 
-      <!-- เพิ่มส่วนแนบรูปภาพ -->
       <div class="mb-2">
         <div class="input-group input-group-sm">
           <label class="input-group-text" for="taskImage">📎 แนบรูป</label>
@@ -104,7 +99,6 @@
               <option value="month">เดือนนี้</option>
             </select>
           </div>
-          
           <div id="historyLoading" class="text-center text-secondary my-3 hidden">กำลังโหลดประวัติ...</div>
           <div id="historyContainer" class="d-flex flex-column gap-2"></div>
         </div>
@@ -134,10 +128,10 @@
         </div>
         <div class="modal-body">
           <div class="mb-4">
-            <label class="form-label text-secondary small mb-1">อีเมลแจ้งเตือนเริ่มต้น</label>
+            <label class="form-label text-secondary small mb-1">อีเมลแจ้งเตือนเริ่มต้น (ซิงก์ทุกอุปกรณ์)</label>
             <div class="input-group">
               <input type="email" id="defaultEmailSetting" class="form-control form-control-sm" placeholder="เช่น a@mail.com">
-              <button onclick="saveDefaultEmail()" class="btn btn-sm btn-secondary">บันทึก</button>
+              <button onclick="saveDefaultEmail()" id="btnSaveEmail" class="btn btn-sm btn-secondary">บันทึก</button>
             </div>
           </div>
           <div class="mb-2">
@@ -152,7 +146,6 @@
     </div>
   </div>
 
-  <!-- โหลด Bootstrap 5 JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
@@ -161,6 +154,7 @@
   let idleTimer;
   let allHistoryNotes = []; 
   let compressedImageData = "";
+  let globalDefaultEmail = "";
   const IDLE_TIMEOUT = 5 * 60 * 1000; 
 
   function resetIdleTimer() {
@@ -180,23 +174,15 @@
   document.onscroll = resetIdleTimer;
 
   document.addEventListener("DOMContentLoaded", () => {
-    let savedEmail = localStorage.getItem("defaultTargetEmail") || "";
-    document.getElementById("targetEmail").value = savedEmail;
-    document.getElementById("defaultEmailSetting").value = savedEmail;
-
-    // จัดการอัปโหลดและย่อขนาดรูปภาพ
     document.getElementById('taskImage').addEventListener('change', function(e) {
       let file = e.target.files[0];
       if (!file) return;
-
       let reader = new FileReader();
       reader.onload = function(event) {
         let img = new Image();
         img.onload = function() {
           let canvas = document.createElement('canvas');
           let ctx = canvas.getContext('2d');
-          
-          // กำหนดขนาดความกว้างไม่เกิน 800px เพื่อประหยัดพื้นที่ฐานข้อมูล
           let MAX_WIDTH = 800;
           let width = img.width;
           let height = img.height;
@@ -205,14 +191,10 @@
             height = Math.round((height * MAX_WIDTH) / width);
             width = MAX_WIDTH;
           }
-          
           canvas.width = width;
           canvas.height = height;
           ctx.drawImage(img, 0, 0, width, height);
-          
-          // แปลงเป็น base64 (JPEG คุณภาพ 0.7)
           compressedImageData = canvas.toDataURL('image/jpeg', 0.7);
-          
           document.getElementById('imagePreview').src = compressedImageData;
           document.getElementById('imagePreviewContainer').classList.remove('hidden');
         }
@@ -258,6 +240,15 @@
       document.getElementById('dashboardScreen').classList.remove('hidden');
       resetIdleTimer();
       renderNotes(res.data);
+
+      // โหลดอีเมลจาก Database (D1) หลังจากล็อกอินสำเร็จ
+      let emailRes = await callApi({ action: 'getDefaultEmail' });
+      if (emailRes && emailRes.success && emailRes.email) {
+        globalDefaultEmail = emailRes.email;
+        document.getElementById('targetEmail').value = globalDefaultEmail;
+        document.getElementById('defaultEmailSetting').value = globalDefaultEmail;
+      }
+
     } else {
       document.getElementById('loginAlert').innerText = "รหัส PIN ไม่ถูกต้อง";
       document.getElementById('loginAlert').classList.remove('hidden');
@@ -275,8 +266,15 @@
     
     container.innerHTML = "";
     notes.forEach(note => {
+      let createdDate = new Date(note.created_at + 'Z'); 
+      let createdString = isNaN(createdDate) ? (note.created_at || 'ไม่ระบุ') : createdDate.toLocaleString('th-TH', { 
+        year: 'numeric', month: 'short', day: 'numeric', 
+        hour: '2-digit', minute: '2-digit' 
+      });
+
+      let createBadge = `<span class="badge bg-info text-dark me-1">🕒 บันทึก: ${createdString}</span>`;
       let emailBadge = note.target_email ? `<span class="badge bg-warning text-dark me-1">✉️ ${note.target_email}</span>` : '';
-      let dateBadge = note.target_date ? `<span class="badge bg-danger">📅 ${note.target_date}</span>` : '';
+      let dateBadge = note.target_date ? `<span class="badge bg-danger">📅 กำหนด: ${note.target_date}</span>` : '';
       let imgHtml = note.image_data ? `<div class="mt-2"><img src="${note.image_data}" class="task-img img-thumbnail" onclick="showBigImage('${note.image_data}')" title="คลิกเพื่อดูรูปใหญ่"></div>` : '';
       
       let html = `
@@ -286,7 +284,9 @@
             <div class="flex-grow-1">
               <p class="mb-1" style="white-space: pre-wrap;">${note.detail}</p>
               ${imgHtml}
-              <div class="mt-2" style="font-size: 0.8rem;">${emailBadge} ${dateBadge}</div>
+              <div class="mt-2" style="font-size: 0.8rem;">
+                ${createBadge} ${emailBadge} ${dateBadge}
+              </div>
             </div>
           </div>
         </div>
@@ -306,9 +306,16 @@
     let targetEmail = document.getElementById('targetEmail').value;
     
     if(!detail.trim()) return alert("กรุณาใส่รายละเอียดงาน");
-    
+
     let btn = document.getElementById('addBtn');
     btn.innerText = "กำลังบันทึก..."; btn.disabled = true;
+
+    // ถ้ามีการเปลี่ยนอีเมลในช่องกรอก ให้บันทึกอัปเดตลง Database อัตโนมัติด้วย
+    if (targetEmail && targetEmail !== globalDefaultEmail) {
+      await callApi({ action: 'saveDefaultEmail', email: targetEmail });
+      globalDefaultEmail = targetEmail;
+      document.getElementById('defaultEmailSetting').value = targetEmail;
+    }
 
     let res = await callApi({
       action: 'add',
@@ -322,9 +329,7 @@
       document.getElementById('taskDetail').value = "";
       document.getElementById('targetDate').value = "";
       clearImage();
-      
-      let savedEmail = localStorage.getItem("defaultTargetEmail") || "";
-      document.getElementById('targetEmail').value = savedEmail;
+      document.getElementById('targetEmail').value = globalDefaultEmail;
       
       let refresh = await callApi({ action: 'get' });
       renderNotes(refresh.data);
@@ -348,10 +353,8 @@
   async function loadHistory() {
     document.getElementById('historyContainer').innerHTML = "";
     document.getElementById('historyLoading').classList.remove('hidden');
-    
     let res = await callApi({ action: 'getHistory' });
     document.getElementById('historyLoading').classList.add('hidden');
-    
     if(res && res.success) {
       allHistoryNotes = res.data; 
       document.getElementById('historyFilter').value = 'all';
@@ -384,7 +387,6 @@
         }
       });
     }
-
     renderHistory(filteredNotes);
   }
 
@@ -394,7 +396,6 @@
       container.innerHTML = `<div class="text-center text-muted my-3 p-3 bg-white rounded shadow-sm">ไม่มีรายการในหมวดหมู่นี้</div>`;
       return;
     }
-    
     container.innerHTML = "";
     notes.forEach(note => {
       let createdDate = new Date(note.created_at + 'Z'); 
@@ -402,7 +403,6 @@
         year: 'numeric', month: 'short', day: 'numeric', 
         hour: '2-digit', minute: '2-digit' 
       });
-
       let dateBadge = note.target_date ? `<span class="badge bg-secondary me-1">🎯 กำหนด: ${note.target_date}</span>` : '';
       let imgHtml = note.image_data ? `<div class="mt-2"><img src="${note.image_data}" class="task-img img-thumbnail" onclick="showBigImage('${note.image_data}')" title="คลิกเพื่อดูรูปใหญ่"></div>` : '';
       
@@ -430,9 +430,7 @@
 
   async function deleteHistory(id) {
     if (!confirm("คุณต้องการลบข้อมูลนี้อย่างถาวรใช่หรือไม่?")) return;
-    
     let res = await callApi({ action: 'delete', id: id });
-    
     if (res && res.success) {
       let card = document.getElementById(`history-${id}`);
       if (card) {
@@ -465,11 +463,21 @@
     });
   }
 
-  function saveDefaultEmail() {
+  // อัปเดตฟังก์ชันบันทึกอีเมลจากการตั้งค่า ให้ยิงเข้า Database
+  async function saveDefaultEmail() {
     let email = document.getElementById("defaultEmailSetting").value;
-    localStorage.setItem("defaultTargetEmail", email);
-    document.getElementById("targetEmail").value = email; 
-    alert("บันทึกอีเมลเริ่มต้นเรียบร้อยแล้ว");
+    let btn = document.getElementById("btnSaveEmail");
+    btn.innerText = "กำลังบันทึก..."; btn.disabled = true;
+
+    let res = await callApi({ action: 'saveDefaultEmail', email: email });
+    if(res && res.success) {
+      globalDefaultEmail = email;
+      document.getElementById("targetEmail").value = email; 
+      alert("บันทึกอีเมลลงฐานข้อมูลเรียบร้อยแล้ว (ซิงก์ทุกอุปกรณ์)");
+    } else {
+      alert("เกิดข้อผิดพลาด ไม่สามารถบันทึกอีเมลได้");
+    }
+    btn.innerText = "บันทึก"; btn.disabled = false;
   }
 
   async function changePin() {
@@ -480,7 +488,6 @@
     btn.innerText = "กำลังเปลี่ยน..."; btn.disabled = true;
 
     let res = await callApi({ action: 'changePin', newPin: newPin });
-    
     if(res && res.success) {
       alert("เปลี่ยนรหัส PIN สำเร็จ");
       currentPin = newPin; 
@@ -496,7 +503,6 @@
     if (window.hasOwnProperty('webkitSpeechRecognition') || window.hasOwnProperty('SpeechRecognition')) {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       const recognition = new SpeechRecognition();
-      
       recognition.continuous = false;
       recognition.interimResults = false;
       recognition.lang = "th-TH";
@@ -505,19 +511,16 @@
       micBtn.innerHTML = '<span class="fs-4">🔴</span>';
       
       recognition.start();
-
       recognition.onresult = function(e) {
         let transcript = e.results[0][0].transcript;
         let taskDetail = document.getElementById('taskDetail');
         taskDetail.value += (taskDetail.value ? ' ' : '') + transcript;
         micBtn.innerHTML = '<span class="fs-4">🎤</span>';
       };
-
       recognition.onerror = function(e) {
         recognition.stop();
         micBtn.innerHTML = '<span class="fs-4">🎤</span>';
       };
-      
       recognition.onend = function() {
         micBtn.innerHTML = '<span class="fs-4">🎤</span>';
       };
@@ -528,10 +531,7 @@
 
   function exportToImage() {
     const container = document.getElementById('notesContainer');
-    if (!container.innerHTML || container.innerText.includes("ไม่มีงานค้าง")) {
-       return alert("ยังไม่มีข้อมูลงานให้บันทึกรูปภาพครับ");
-    }
-    
+    if (!container.innerHTML || container.innerText.includes("ไม่มีงานค้าง")) return alert("ยังไม่มีข้อมูลงานให้บันทึกรูปภาพครับ");
     const originalBg = container.style.backgroundColor;
     container.style.backgroundColor = '#e9ecef';
     container.style.padding = '15px';
@@ -560,9 +560,7 @@
 
   function exportHistoryToImage() {
     const container = document.getElementById('historyContainer');
-    if (!container.innerHTML || container.innerText.includes("ไม่มีรายการ")) {
-       return alert("ยังไม่มีประวัติให้บันทึกรูปภาพครับ");
-    }
+    if (!container.innerHTML || container.innerText.includes("ไม่มีรายการ")) return alert("ยังไม่มีประวัติให้บันทึกรูปภาพครับ");
 
     const originalBg = container.style.backgroundColor;
     container.style.backgroundColor = '#e9ecef';
@@ -598,7 +596,6 @@
   }
 </script>
 
-<!-- สคริปต์ลงทะเบียน Service Worker สำหรับ PWA -->
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
